@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,8 +45,17 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.Point
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+
 import androidx.core.graphics.toColorInt
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.delay
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.geojson.FeatureCollection
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +77,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MapContent(savedInstanceState: Bundle?) {
+    val viewModel: MainViewModel = viewModel()
+    val aircraft by viewModel.aircraft.collectAsState()
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val lifecycle = activity.lifecycle
@@ -74,6 +86,7 @@ fun MapContent(savedInstanceState: Bundle?) {
     val mapView = remember { MapView(context) }
     var mapLibreMap by remember { mutableStateOf<org.maplibre.android.maps.MapLibreMap?>(null) }
     var locationSource by remember { mutableStateOf<GeoJsonSource?>(null) }
+    var userLatLng by remember { mutableStateOf<LatLng?>(null) }
 
     DisposableEffect(lifecycle) {
         var created = false
@@ -101,9 +114,9 @@ fun MapContent(savedInstanceState: Bundle?) {
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isAttributionEnabled = false
             map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
-                style.layers.forEach { layer ->
-                    //Log.d("Airplanes", "Layer: ${layer.id}")
-                }
+                /*style.layers.forEach { layer ->
+                    Log.d("Airplanes", "Layer: ${layer.id}")
+                }*/
                 style.removeLayer("highway-shield-non-us")
                 locationSource = GeoJsonSource("user-location")
                 style.addSource(locationSource!!)
@@ -114,6 +127,24 @@ fun MapContent(savedInstanceState: Bundle?) {
                             PropertyFactory.circleRadius(6f),
                             PropertyFactory.circleStrokeColor(Color.WHITE),
                             PropertyFactory.circleStrokeWidth(3f)
+                        )
+                )
+
+                try {
+                    val planeBitmap = loadPlaneIcon(context)
+                    style.addImage("plane-icon", planeBitmap)
+                } catch (_: Exception) {}
+
+                val aircraftSource = GeoJsonSource("aircraft")
+                style.addSource(aircraftSource)
+                style.addLayer(
+                    SymbolLayer("aircraft-layer", "aircraft")
+                        .withProperties(
+                            PropertyFactory.iconImage("plane-icon"),
+                            PropertyFactory.iconRotate(Expression.get("track")),
+                            PropertyFactory.iconAllowOverlap(true),
+                            PropertyFactory.iconSize(0.5f),
+                            PropertyFactory.iconAnchor("center")
                         )
                 )
             }
@@ -161,11 +192,13 @@ fun MapContent(savedInstanceState: Bundle?) {
         val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { loc ->
+                    val latLng = LatLng(loc.latitude, loc.longitude)
+                    userLatLng = latLng
                     locationSource?.setGeoJson(
                         Feature.fromGeometry(Point.fromLngLat(loc.longitude, loc.latitude))
                     )
                     mapLibreMap?.animateCamera(
-                        CameraUpdateFactory.newLatLng(LatLng(loc.latitude, loc.longitude))
+                        CameraUpdateFactory.newLatLng(latLng)
                     )
                 }
             }
@@ -182,10 +215,40 @@ fun MapContent(savedInstanceState: Bundle?) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        while (userLatLng == null) {
+            delay(500)
+        }
+        while (true) {
+            userLatLng?.let { viewModel.fetchAircraft(it.latitude, it.longitude) }
+            delay(5000)
+        }
+    }
+
+    LaunchedEffect(aircraft) {
+        val map = mapLibreMap ?: return@LaunchedEffect
+        val features = aircraft.map { a ->
+            Feature.fromGeometry(Point.fromLngLat(a.lon!!, a.lat!!)).apply {
+                addNumberProperty("track", (a.track ?: 0f).toDouble())
+                addStringProperty("hex", a.hex)
+                a.flight?.let { addStringProperty("flight", it) }
+                a.gs?.let { addNumberProperty("gs", it.toDouble()) }
+            }
+        }
+        map.getStyle { style ->
+            val source = style.getSourceAs<GeoJsonSource>("aircraft")
+            source?.setGeoJson(FeatureCollection.fromFeatures(features))
+        }
+    }
+
     AndroidView(
         factory = { mapView },
         modifier = Modifier.fillMaxSize()
     )
+}
+
+private fun loadPlaneIcon(context: Context): Bitmap {
+    return BitmapFactory.decodeStream(context.assets.open("plane.png"))!!
 }
 
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
