@@ -4,29 +4,56 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cz.owny.airplanes.data.Aircraft
+import cz.owny.airplanes.data.AircraftDetails
 import cz.owny.airplanes.data.AircraftRepository
+import cz.owny.airplanes.data.AdsbdbRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 class MainViewModel : ViewModel() {
 
     private val repository = AircraftRepository()
+    private val adsbdbRepository = AdsbdbRepository()
 
     private val _aircraft = MutableStateFlow<List<Aircraft>>(emptyList())
     val aircraft: StateFlow<List<Aircraft>> = _aircraft
 
+    private val _selectedDetails = MutableStateFlow<AircraftDetails?>(null)
+    val selectedDetails: StateFlow<AircraftDetails?> = _selectedDetails
+
     private var previousAircraft = mapOf<String, Aircraft>()
     private var animationJob: Job? = null
 
-    fun fetchAircraft(lat: Double, lon: Double) {
+    fun fetchDetails(aircraft: Aircraft?) {
+        viewModelScope.launch {
+            if (aircraft?.r == null) {
+                _selectedDetails.value = null
+                return@launch
+            }
+            val callsign = aircraft.flight?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+            val details = adsbdbRepository.lookup(aircraft.r, callsign)
+            _selectedDetails.value = details
+        }
+    }
+
+    fun fetchAircraft(lat: Double, lon: Double, radiusNm: Int) {
         viewModelScope.launch {
             try {
-                val result = repository.getAircraft(lat, lon)
+                val result = repository.getAircraft(lat, lon, radiusNm)
                 startInterpolation(result)
+
+                val activeKeys = result.mapNotNull { aircraft ->
+                    aircraft.r?.let { reg ->
+                        val cs = aircraft.flight?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+                        "$reg|${cs ?: ""}"
+                    }
+                }.toSet()
+                adsbdbRepository.pruneCache(activeKeys)
             } catch (e: Exception) {
                 Log.w("Airplanes", "Failed to fetch aircraft", e)
             }
@@ -61,7 +88,7 @@ class MainViewModel : ViewModel() {
                 _aircraft.value = interpolated
 
                 if (fraction >= 1.0) break
-                delay(33L)
+                delay(33L.milliseconds)
             }
 
             previousAircraft = targetMap

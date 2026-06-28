@@ -5,7 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Looper
-//import android.util.Log
+import android.util.Log
 import android.view.WindowManager
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -16,7 +16,20 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -25,8 +38,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -38,6 +58,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.WellKnownTileServer
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.CircleLayer
@@ -48,14 +69,26 @@ import org.maplibre.geojson.Point
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableIntStateOf
 
 import androidx.core.graphics.toColorInt
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import cz.owny.airplanes.data.Aircraft
+import cz.owny.airplanes.data.AircraftDetails
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.delay
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.geojson.FeatureCollection
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.geojson.Polygon
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,7 +119,15 @@ fun MapContent(savedInstanceState: Bundle?) {
     val mapView = remember { MapView(context) }
     var mapLibreMap by remember { mutableStateOf<org.maplibre.android.maps.MapLibreMap?>(null) }
     var locationSource by remember { mutableStateOf<GeoJsonSource?>(null) }
+    var selectedAircraftSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
+    var debugCircleSource by remember { mutableStateOf<GeoJsonSource?>(null) }
+    var visibleBounds by remember { mutableStateOf<LatLngBounds?>(null) }
+
+    val positionedAircraft = aircraft.filter { it.hasPosition() && (visibleBounds == null || visibleBounds!!.contains(LatLng(it.lat!!, it.lon!!))) }
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    val selectedAircraft = positionedAircraft.getOrNull(selectedIndex)
+    val selectedDetails by viewModel.selectedDetails.collectAsState()
 
     DisposableEffect(lifecycle) {
         var created = false
@@ -114,10 +155,27 @@ fun MapContent(savedInstanceState: Bundle?) {
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isAttributionEnabled = false
             map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
-                /*style.layers.forEach { layer ->
-                    Log.d("Airplanes", "Layer: ${layer.id}")
-                }*/
+                if (Config.DEBUG) {
+                    style.layers.forEach { layer ->
+                        Log.d("Airplanes", "Layer: ${layer.id}")
+                    }
+                }
                 style.removeLayer("highway-shield-non-us")
+
+                if (Config.DEBUG) {
+                    Log.d("Airplanes", "Drawing DEBUG radius")
+                    val circleSource = GeoJsonSource("debug-circle")
+                    debugCircleSource = circleSource
+                    style.addSource(circleSource)
+                    style.addLayer(
+                        FillLayer("debug-circle-layer", "debug-circle")
+                            .withProperties(
+                                PropertyFactory.fillColor(Color.CYAN),
+                                PropertyFactory.fillOpacity(0.12f),
+                                PropertyFactory.fillOutlineColor(Color.CYAN)
+                            )
+                    )
+                }
                 locationSource = GeoJsonSource("user-location")
                 style.addSource(locationSource!!)
                 style.addLayer(
@@ -147,6 +205,23 @@ fun MapContent(savedInstanceState: Bundle?) {
                             PropertyFactory.iconAnchor("center")
                         )
                 )
+
+                val selectedSource = GeoJsonSource("selected-aircraft")
+                selectedAircraftSource = selectedSource
+                style.addSource(selectedSource)
+                style.addLayer(
+                    CircleLayer("selected-aircraft-layer", "selected-aircraft")
+                        .withProperties(
+                            PropertyFactory.circleColor(Color.WHITE),
+                            PropertyFactory.circleOpacity(0.4f),
+                            PropertyFactory.circleRadius(20f),
+                            PropertyFactory.circleStrokeColor(Color.WHITE),
+                            PropertyFactory.circleStrokeWidth(2f)
+                        )
+                )
+            }
+            map.addOnCameraMoveListener {
+                visibleBounds = map.projection.visibleRegion.latLngBounds
             }
         }
     }
@@ -206,7 +281,7 @@ fun MapContent(savedInstanceState: Bundle?) {
 
         try {
             fusedClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
-            kotlinx.coroutines.delay(Long.MAX_VALUE.milliseconds)
+            delay(Long.MAX_VALUE.milliseconds)
         } catch (_: SecurityException) {
         } finally {
             try {
@@ -217,11 +292,11 @@ fun MapContent(savedInstanceState: Bundle?) {
 
     LaunchedEffect(Unit) {
         while (userLatLng == null) {
-            delay(500)
+            delay(500.milliseconds)
         }
         while (true) {
-            userLatLng?.let { viewModel.fetchAircraft(it.latitude, it.longitude) }
-            delay(5000)
+            userLatLng?.let { viewModel.fetchAircraft(it.latitude, it.longitude, RADIUS_NM) }
+            delay(5000.milliseconds)
         }
     }
 
@@ -241,14 +316,252 @@ fun MapContent(savedInstanceState: Bundle?) {
         }
     }
 
-    AndroidView(
-        factory = { mapView },
-        modifier = Modifier.fillMaxSize()
-    )
+    LaunchedEffect(aircraft, selectedIndex) {
+        val source = selectedAircraftSource ?: return@LaunchedEffect
+        if (selectedAircraft != null) {
+            source.setGeoJson(
+                Feature.fromGeometry(Point.fromLngLat(selectedAircraft.lon!!, selectedAircraft.lat!!))
+            )
+        } else {
+            source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        }
+    }
+
+    if (Config.DEBUG) {
+        LaunchedEffect(userLatLng) {
+            val source = debugCircleSource ?: return@LaunchedEffect
+            val pos = userLatLng ?: run {
+                source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+                return@LaunchedEffect
+            }
+            source.setGeoJson(createCircleFeature(pos, RADIUS_NM))
+        }
+    }
+
+    LaunchedEffect(positionedAircraft.size) {
+        val size = positionedAircraft.size
+        if (size == 0) return@LaunchedEffect
+        selectedIndex = selectedIndex.coerceIn(0, size - 1)
+        while (true) {
+            delay(5000.milliseconds)
+            selectedIndex = (selectedIndex + 1) % size
+        }
+    }
+
+    LaunchedEffect(selectedAircraft?.r, selectedAircraft?.flight) {
+        viewModel.fetchDetails(selectedAircraft)
+    }
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { mapView },
+            modifier = Modifier.weight(2f).fillMaxHeight()
+        )
+        AircraftDetailPanel(
+            aircraft = selectedAircraft,
+            details = selectedDetails,
+            modifier = Modifier.weight(1f).fillMaxHeight()
+        )
+    }
+}
+
+@Composable
+private fun AircraftDetailPanel(aircraft: Aircraft?, details: AircraftDetails?, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (aircraft != null) {
+                val photoUrl = details?.photoUrl
+                if (photoUrl != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(photoUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(2.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Photo",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                aircraft.t?.let { type ->
+                    val desc = aircraft.desc ?: ""
+                    Text(
+                        desc,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                HorizontalDivider()
+
+                val originCode = details?.origin?.iataCode ?: details?.origin?.icaoCode
+                val destCode = details?.destination?.iataCode ?: details?.destination?.icaoCode
+                val originCity = details?.origin?.municipality
+                val destCity = details?.destination?.municipality
+                val originCountry = details?.origin?.countryIso
+                val destCountry = details?.destination?.countryIso
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = originCode ?: "???",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (originCity != null || originCountry != null) {
+                            Text(
+                                text = buildString {
+                                    originCity?.let { append(it) }
+                                    originCountry?.let { append(" ($it)") }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                    Text(
+                        text = "\u2192",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = destCode ?: "???",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (destCity != null || destCountry != null) {
+                            Text(
+                                text = buildString {
+                                    destCity?.let { append(it) }
+                                    destCountry?.let { append(" ($it)") }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                details?.airline?.name?.let {
+                    Text(
+                        "Airline: $it",
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                aircraft.flight?.let { flight ->
+                    Text(
+                        "Flight: $flight",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                aircraft.r?.let { reg ->
+                    val country = details?.ownerCountryName
+                    Text(
+                        text = if (country != null) "Reg: $reg ($country)" else "Reg: $reg",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                aircraft.altBaroMeters?.let {
+                    Text(
+                        "Alt: $it m",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No aircraft",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
 }
 
 private fun loadPlaneIcon(context: Context): Bitmap {
     return BitmapFactory.decodeStream(context.assets.open("plane.png"))!!
 }
 
+private fun createCircleFeature(center: LatLng, radiusNm: Int, numPoints: Int = 64): Feature {
+    val earthRadius = 6371000.0
+    val latRad = Math.toRadians(center.latitude)
+    val lonRad = Math.toRadians(center.longitude)
+    val distRad = (radiusNm * 1852) / earthRadius
+
+    val points = (0..numPoints).map { i ->
+        val bearing = 2.0 * Math.PI * i / numPoints
+        val lat2 = asin(
+            sin(latRad) * cos(distRad) +
+                    cos(latRad) * sin(distRad) * cos(bearing)
+        )
+        val lon2 = lonRad + atan2(
+            sin(bearing) * sin(distRad) * cos(latRad),
+            cos(distRad) - sin(latRad) * sin(lat2)
+        )
+        Point.fromLngLat(Math.toDegrees(lon2), Math.toDegrees(lat2))
+    }
+
+    return Feature.fromGeometry(Polygon.fromLngLats(listOf(points)))
+}
+
+private const val RADIUS_NM = 9
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
