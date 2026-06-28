@@ -6,10 +6,10 @@ A simple Android flight tracker that shows aircraft near the user's location on 
 
 ## Data Sources
 
-- [ADSB.fi open data](https://opendata.adsb.fi/) — live aircraft positions within a 9 NM radius.
-- [ADS-B DB](https://api.adsbdb.com/) — aircraft owner country and flight route / airline metadata.
+- [Flightradar24](https://www.flightradar24.com/) — live aircraft positions, routes and airlines.
 - [PlaneSpotters](https://www.planespotters.net/) — aircraft photos by registration.
 - [OpenFreeMap](https://tiles.openfreemap.org/styles/liberty) — liberty map style (MapLibre SDK).
+- Static mappings for airport names, airline names, and registration country prefixes.
 
 ## Tech Stack
 

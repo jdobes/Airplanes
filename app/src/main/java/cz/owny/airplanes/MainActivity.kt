@@ -85,12 +85,7 @@ import kotlinx.coroutines.delay
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.geojson.FeatureCollection
-import org.maplibre.android.style.layers.FillLayer
-import org.maplibre.geojson.Polygon
-import kotlin.math.asin
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,10 +118,9 @@ fun MapContent(savedInstanceState: Bundle?) {
     var locationSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var selectedAircraftSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
-    var debugCircleSource by remember { mutableStateOf<GeoJsonSource?>(null) }
     var visibleBounds by remember { mutableStateOf<LatLngBounds?>(null) }
 
-    val positionedAircraft = aircraft.filter { it.hasPosition() && (visibleBounds == null || visibleBounds!!.contains(LatLng(it.lat!!, it.lon!!))) }
+    val positionedAircraft = aircraft.filter { it.hasPosition() }
     var selectedIndex by remember { mutableIntStateOf(0) }
     val selectedAircraft = positionedAircraft.getOrNull(selectedIndex)
     val selectedDetails by viewModel.selectedDetails.collectAsState()
@@ -164,20 +158,6 @@ fun MapContent(savedInstanceState: Bundle?) {
                 }
                 style.removeLayer("highway-shield-non-us")
 
-                if (Config.DEBUG) {
-                    Log.d("Airplanes", "Drawing DEBUG radius")
-                    val circleSource = GeoJsonSource("debug-circle")
-                    debugCircleSource = circleSource
-                    style.addSource(circleSource)
-                    style.addLayer(
-                        FillLayer("debug-circle-layer", "debug-circle")
-                            .withProperties(
-                                PropertyFactory.fillColor(Color.CYAN),
-                                PropertyFactory.fillOpacity(0.12f),
-                                PropertyFactory.fillOutlineColor(Color.CYAN)
-                            )
-                    )
-                }
                 locationSource = GeoJsonSource("user-location")
                 style.addSource(locationSource!!)
                 style.addLayer(
@@ -293,11 +273,15 @@ fun MapContent(savedInstanceState: Bundle?) {
     }
 
     LaunchedEffect(Unit) {
-        while (userLatLng == null) {
-            delay(500.milliseconds)
-        }
         while (true) {
-            userLatLng?.let { viewModel.fetchAircraft(it.latitude, it.longitude, RADIUS_NM) }
+            visibleBounds?.let { bounds ->
+                viewModel.fetchAircraft(
+                    bounds.northEast.latitude,
+                    bounds.southWest.latitude,
+                    bounds.southWest.longitude,
+                    bounds.northEast.longitude
+                )
+            }
             delay(5000.milliseconds)
         }
     }
@@ -326,17 +310,6 @@ fun MapContent(savedInstanceState: Bundle?) {
             )
         } else {
             source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-        }
-    }
-
-    if (Config.DEBUG) {
-        LaunchedEffect(userLatLng) {
-            val source = debugCircleSource ?: return@LaunchedEffect
-            val pos = userLatLng ?: run {
-                source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-                return@LaunchedEffect
-            }
-            source.setGeoJson(createCircleFeature(pos, RADIUS_NM))
         }
     }
 
@@ -577,27 +550,4 @@ private fun loadPlaneIcon(context: Context): Bitmap {
     return BitmapFactory.decodeStream(context.assets.open("plane.png"))!!
 }
 
-private fun createCircleFeature(center: LatLng, radiusNm: Int, numPoints: Int = 64): Feature {
-    val earthRadius = 6371000.0
-    val latRad = Math.toRadians(center.latitude)
-    val lonRad = Math.toRadians(center.longitude)
-    val distRad = (radiusNm * 1852) / earthRadius
-
-    val points = (0..numPoints).map { i ->
-        val bearing = 2.0 * Math.PI * i / numPoints
-        val lat2 = asin(
-            sin(latRad) * cos(distRad) +
-                    cos(latRad) * sin(distRad) * cos(bearing)
-        )
-        val lon2 = lonRad + atan2(
-            sin(bearing) * sin(distRad) * cos(latRad),
-            cos(distRad) - sin(latRad) * sin(lat2)
-        )
-        Point.fromLngLat(Math.toDegrees(lon2), Math.toDegrees(lat2))
-    }
-
-    return Feature.fromGeometry(Polygon.fromLngLats(listOf(points)))
-}
-
-private const val RADIUS_NM = 9
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"

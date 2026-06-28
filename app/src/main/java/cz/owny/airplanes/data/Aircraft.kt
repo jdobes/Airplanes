@@ -1,6 +1,5 @@
 package cz.owny.airplanes.data
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -17,7 +16,10 @@ data class Aircraft(
     val r: String? = null,
     val t: String? = null,
     val desc: String? = null,
-    val alt_baro: JsonElement? = null
+    val alt_baro: JsonElement? = null,
+    val origin: String? = null,
+    val destination: String? = null,
+    val airline: String? = null
 ) {
     fun hasPosition() = lat != null && lon != null
 
@@ -33,14 +35,35 @@ data class Aircraft(
         }
 }
 
-@Serializable
-data class AircraftResponse(
-    @SerialName("msg") val messages: String? = null,
-    @SerialName("ac") val aircraft: List<Aircraft> = emptyList(),
-    val now: Long? = null
-)
-
 val apiJson = Json {
     ignoreUnknownKeys = true
     coerceInputValues = true
 }
+
+data class Airline(
+    val name: String? = null,
+    val icao: String? = null,
+    val iata: String? = null,
+    val country: String? = null,
+    val countryIso: String? = null
+)
+
+data class Airport(
+    val iataCode: String? = null,
+    val icaoCode: String? = null,
+    val name: String? = null,
+    val municipality: String? = null,
+    val countryName: String? = null,
+    val countryIso: String? = null
+)
+
+data class AircraftDetails(
+    val photoUrl: String?,
+    val photographer: String? = null,
+    val photoLink: String? = null,
+    val ownerCountryName: String?,
+    val origin: Airport?,
+    val destination: Airport?,
+    val airline: Airline? = null,
+    val callsign: String? = null
+)
