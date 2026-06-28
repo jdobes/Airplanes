@@ -7,7 +7,10 @@ import cz.owny.airplanes.data.Aircraft
 import cz.owny.airplanes.data.AircraftDetails
 import cz.owny.airplanes.data.AircraftRepository
 import cz.owny.airplanes.data.AdsbdbRepository
+import cz.owny.airplanes.data.PlanespottersRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +22,7 @@ class MainViewModel : ViewModel() {
 
     private val repository = AircraftRepository()
     private val adsbdbRepository = AdsbdbRepository()
+    private val planespottersRepository = PlanespottersRepository()
 
     private val _aircraft = MutableStateFlow<List<Aircraft>>(emptyList())
     val aircraft: StateFlow<List<Aircraft>> = _aircraft
@@ -35,8 +39,28 @@ class MainViewModel : ViewModel() {
                 _selectedDetails.value = null
                 return@launch
             }
+            val reg = aircraft.r
             val callsign = aircraft.flight?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
-            val details = adsbdbRepository.lookup(aircraft.r, callsign)
+            val details = coroutineScope {
+                val metadata = async { adsbdbRepository.lookup(reg, callsign) }
+                val photo = async { planespottersRepository.lookup(reg) }
+                val m = metadata.await()
+                val p = photo.await()
+                if (m != null || p != null) {
+                    AircraftDetails(
+                        photoUrl = p?.photoUrl,
+                        photographer = p?.photographer,
+                        photoLink = p?.photoLink,
+                        ownerCountryName = m?.ownerCountryName,
+                        origin = m?.origin,
+                        destination = m?.destination,
+                        airline = m?.airline,
+                        callsign = m?.callsign
+                    )
+                } else {
+                    null
+                }
+            }
             _selectedDetails.value = details
         }
     }
@@ -53,8 +77,11 @@ class MainViewModel : ViewModel() {
                         "$reg|${cs ?: ""}"
                     }
                 }.toSet()
-                adsbdbRepository.pruneCache(activeKeys)
-            } catch (e: Exception) {
+            adsbdbRepository.pruneCache(activeKeys)
+            planespottersRepository.pruneCache(
+                result.mapNotNull { it.r }.toSet()
+            )
+        } catch (e: Exception) {
                 Log.w("Airplanes", "Failed to fetch aircraft", e)
             }
         }

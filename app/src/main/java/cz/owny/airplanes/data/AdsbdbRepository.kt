@@ -56,11 +56,11 @@ class AdsbdbRepository {
             }
             val aircraft = body.response.aircraft
             if (aircraft == null) {
-                if (Config.DEBUG) Log.d("Airplanes", "adsbdb: no aircraft data for reg='$reg'")
+                Log.w("Airplanes", "adsbdb: no aircraft data for reg='$reg'")
                 return null
             }
             return AircraftDetails(
-                photoUrl = aircraft.urlPhotoThumbnail ?: aircraft.urlPhoto,
+                photoUrl = null,
                 ownerCountryName = aircraft.ownerCountryName,
                 origin = body.response.flightroute?.origin,
                 destination = body.response.flightroute?.destination,

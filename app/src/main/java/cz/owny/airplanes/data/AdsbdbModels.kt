@@ -55,6 +55,8 @@ data class Airport(
 
 data class AircraftDetails(
     val photoUrl: String?,
+    val photographer: String? = null,
+    val photoLink: String? = null,
     val ownerCountryName: String?,
     val origin: Airport?,
     val destination: Airport?,
