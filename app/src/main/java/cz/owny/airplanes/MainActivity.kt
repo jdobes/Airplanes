@@ -447,7 +447,7 @@ private fun AircraftDetailPanel(aircraft: Aircraft?, details: AircraftDetails?, 
                     val desc = aircraft.desc ?: ""
                     Text(
                         desc,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
