@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import cz.owny.airplanes.data.Aircraft
 import cz.owny.airplanes.data.AircraftDetails
+import cz.owny.airplanes.data.AdsbFiRepository
 import cz.owny.airplanes.data.AircraftRepository
 import cz.owny.airplanes.data.Airline
 import cz.owny.airplanes.data.AirlineDatabase
@@ -31,6 +32,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AircraftRepository()
     private val planespottersRepository = PlanespottersRepository()
+    private val adsbFiRepository = AdsbFiRepository()
 
     private val _aircraft = MutableStateFlow<List<Aircraft>>(emptyList())
     val aircraft: StateFlow<List<Aircraft>> = _aircraft
@@ -49,7 +51,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val reg = aircraft.r
             val p = planespottersRepository.lookup(reg)
-            val details = if (p != null || aircraft.origin != null || aircraft.destination != null || aircraft.airline != null) {
+            val a = adsbFiRepository.lookup(reg)
+            val details = if (p != null || a != null || aircraft.origin != null || aircraft.destination != null || aircraft.airline != null) {
                 AircraftDetails(
                     photoUrl = p?.photoUrl,
                     photographer = p?.photographer,
@@ -65,7 +68,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     },
                     airline = aircraft.airline?.let { icao ->
                         AirlineDatabase.lookup(icao)?.let { name -> Airline(name = name, icao = icao) }
-                    }
+                    },
+                    desc = a?.desc,
+                    type = a?.type
                 )
             } else {
                 null
@@ -80,9 +85,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val result = repository.getAircraft(north, south, west, east)
                 startInterpolation(result)
 
-            planespottersRepository.pruneCache(
-                result.mapNotNull { it.r }.toSet()
-            )
+            val validRegs = result.mapNotNull { it.r }.toSet()
+            planespottersRepository.pruneCache(validRegs)
+            adsbFiRepository.pruneCache(validRegs)
         } catch (e: Exception) {
                 Log.w("Airplanes", "Failed to fetch aircraft", e)
             }

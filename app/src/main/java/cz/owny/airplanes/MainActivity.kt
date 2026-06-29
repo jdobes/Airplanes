@@ -416,10 +416,11 @@ private fun AircraftDetailPanel(aircraft: Aircraft?, details: AircraftDetails?, 
                     }
                 }
 
-                aircraft.t?.let { type ->
-                    val desc = aircraft.desc ?: ""
+                val displayType = details?.type ?: aircraft.t
+                val displayDesc = details?.desc
+                if (displayType != null || displayDesc != null) {
                     Text(
-                        desc,
+                        displayDesc ?: "",
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

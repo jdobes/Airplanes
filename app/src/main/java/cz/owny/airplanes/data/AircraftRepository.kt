@@ -60,7 +60,7 @@ class AircraftRepository {
             }
             val aircraft = body.entries.mapNotNull { (key, value) ->
                 if (key == "full_count" || key == "version") return@mapNotNull null
-                Log.d("Airplanes", key)
+                if (Config.DEBUG) Log.d("Airplanes", key)
                 val arr = value as? JsonArray ?: return@mapNotNull null
                 parseAircraft(key, arr)
             }

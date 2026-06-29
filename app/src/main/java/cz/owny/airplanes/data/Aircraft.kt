@@ -65,5 +65,7 @@ data class AircraftDetails(
     val origin: Airport?,
     val destination: Airport?,
     val airline: Airline? = null,
-    val callsign: String? = null
+    val callsign: String? = null,
+    val desc: String? = null,
+    val type: String? = null
 )
