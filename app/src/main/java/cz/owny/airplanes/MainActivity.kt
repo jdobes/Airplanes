@@ -150,6 +150,7 @@ fun MapContent(savedInstanceState: Bundle?) {
             mapLibreMap = map
             map.uiSettings.isLogoEnabled = false
             map.uiSettings.isAttributionEnabled = false
+            map.uiSettings.setAllGesturesEnabled(false)
             map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
                 if (Config.DEBUG) {
                     style.layers.forEach { layer ->
