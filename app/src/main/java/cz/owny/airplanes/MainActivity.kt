@@ -435,16 +435,12 @@ private fun AircraftDetailPanel(aircraft: Aircraft?, details: AircraftDetails?, 
                     }
                 }
 
-                val displayType = details?.type ?: aircraft.t
-                val displayDesc = details?.desc
-                if (displayType != null || displayDesc != null) {
-                    Text(
-                        displayDesc ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    details?.desc ?: "UNKNOWN",
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
                 HorizontalDivider()
 
