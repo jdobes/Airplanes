@@ -1,8 +1,11 @@
 package cz.owny.airplanes
 
 import android.Manifest
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.BatteryManager
 import android.os.Bundle
 import android.os.Looper
 import android.util.Log
@@ -28,6 +31,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
@@ -37,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -80,7 +87,14 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import cz.owny.airplanes.data.Aircraft
 import cz.owny.airplanes.data.AircraftDetails
+import cz.owny.airplanes.ui.theme.AirplanesTheme
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.SymbolLayer
@@ -100,7 +114,9 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MapContent(savedInstanceState)
+            AirplanesTheme(darkTheme = false) {
+                MapContent(savedInstanceState)
+            }
         }
     }
 }
@@ -534,18 +550,130 @@ private fun AircraftDetailPanel(aircraft: Aircraft?, details: AircraftDetails?, 
                     )
                 }
             } else {
-                Box(
+                val battery = rememberBatteryState()
+                Column(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         "No aircraft",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.height(24.dp))
+                    Clock()
+                    Spacer(Modifier.height(16.dp))
+                    BatteryIndicator(
+                        level = battery.level,
+                        isCharging = battery.isCharging
+                    )
                 }
             }
         }
+}
+
+@Composable
+private fun rememberBatteryState(): BatteryState {
+    val context = LocalContext.current
+    val state by produceState(initialValue = BatteryState()) {
+        callbackFlow {
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: android.content.Context?, intent: Intent?) {
+                    intent?.let { trySend(readBattery(it)) }
+                }
+            }
+            val sticky = ContextCompat.registerReceiver(
+                context,
+                receiver,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            sticky?.let { trySend(readBattery(it)) }
+            awaitClose { context.unregisterReceiver(receiver) }
+        }.collect { value = it }
+    }
+    return state
+}
+
+private fun readBattery(intent: Intent): BatteryState {
+    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+    val pct = if (level >= 0 && scale > 0) (level * 100) / scale else -1
+    val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+    val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+        status == BatteryManager.BATTERY_STATUS_FULL
+    return BatteryState(level = pct, isCharging = charging)
+}
+
+data class BatteryState(val level: Int = -1, val isCharging: Boolean = false)
+
+@Composable
+private fun Clock() {
+    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
+    val timeStr by produceState(initialValue = LocalTime.now().format(formatter)) {
+        while (true) {
+            val now = LocalTime.now()
+            val nextMinuteSecond = 60 - now.second
+            delay(nextMinuteSecond.seconds.inWholeMilliseconds.milliseconds)
+            value = LocalTime.now().format(formatter)
+        }
+    }
+    Text(
+        text = timeStr,
+        style = MaterialTheme.typography.displayMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Light
+    )
+}
+
+@Composable
+private fun BatteryIndicator(level: Int, isCharging: Boolean) {
+    val outlineColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val fillColor = if (isCharging) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    val pctText = if (level >= 0) "$level%" else "--%"
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(width = 28.dp, height = 14.dp)
+                    .border(1.dp, outlineColor, RoundedCornerShape(2.dp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(1.dp)
+                        .let { if (level >= 0) it.fillMaxWidth(level / 100f) else it }
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(fillColor)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(width = 2.dp, height = 6.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(outlineColor)
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = pctText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (isCharging) {
+            Spacer(Modifier.width(4.dp))
+            Text(
+                "⚡",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }
 
 private fun loadPlaneIcon(context: Context): Bitmap {
