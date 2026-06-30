@@ -8,8 +8,8 @@ A simple Android flight tracker that shows aircraft near the user's location on 
 
 - [Flightradar24](https://www.flightradar24.com/) — live aircraft positions, routes and airlines.
 - [PlaneSpotters](https://www.planespotters.net/) — aircraft photos by registration.
-- [ADSB.fi open data](https://opendata.adsb.fi/) — aircraft description.
-- [OpenFreeMap](https://tiles.openfreemap.org/styles/liberty) — liberty map style (MapLibre SDK).
+- [ADSB.fi open data](https://adsb.fi/) — aircraft description.
+- [OpenFreeMap](https://openfreemap.org/) — liberty map style (MapLibre SDK).
 - Static mappings for airport names, airline names, and registration country prefixes.
 
 ## Tech Stack
